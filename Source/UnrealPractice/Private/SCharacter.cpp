@@ -5,9 +5,11 @@
 
 #include "DrawDebugHelpers.h"
 #include "SInteractionComponent.h"
+#include "SAttributesComponent.h"
 #include "Camera/CameraComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/SpringArmComponent.h"
+#include "Kismet/KismetMathLibrary.h"
 #include "Particles/ParticleEventManager.h"
 
 // Sets default values
@@ -24,6 +26,8 @@ ASCharacter::ASCharacter()
 	CameraComp->SetupAttachment(SpringArmComp);
 
 	InteractionComp = CreateDefaultSubobject<USInteractionComponent>("InteractionComp");
+
+	AttributeComp = CreateDefaultSubobject<USAttributesComponent>("AttributeComp");
 
 	GetCharacterMovement()->bOrientRotationToMovement = true;
 
@@ -59,15 +63,22 @@ void ASCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponen
 {
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
 
+	// Movement 
 	PlayerInputComponent->BindAxis("MoveForward", this, &ASCharacter::MoveForward);
 	PlayerInputComponent->BindAxis("MoveRight", this, &ASCharacter::MoveRight);
 
+	// Rotation
 	PlayerInputComponent->BindAxis("Turn", this, &APawn::AddControllerYawInput);
 	PlayerInputComponent->BindAxis("LookUp", this, &APawn::AddControllerPitchInput);
 
+	// Actions
 	PlayerInputComponent->BindAction("PrimaryAttack", IE_Pressed, this, &ASCharacter::PrimaryAttack);
 	PlayerInputComponent->BindAction("Jump", IE_Pressed, this, &ASCharacter::Jump);
 	PlayerInputComponent->BindAction("PrimaryInteract", IE_Pressed, this, &ASCharacter::PrimaryInteract);
+
+	// Abilities
+	PlayerInputComponent->BindAction("FirstAbility", IE_Pressed, this, &ASCharacter::FirstAbility);
+	PlayerInputComponent->BindAction("SecondAbility", IE_Pressed, this, &ASCharacter::SecondAbility);
 }
 
 void ASCharacter::MoveForward(float Value)
@@ -96,25 +107,77 @@ void ASCharacter::PrimaryAttack()
 {
 	PlayAnimMontage(AttackAnim);
 
-	GetWorldTimerManager().SetTimer(TimerHandle_PrimaryAttack, this, &ASCharacter::PrimaryAttack_TimeElapsed, 0.2f);
-}
-
-void ASCharacter::PrimaryAttack_TimeElapsed()
-{
-	FVector GunPosition = GetMesh()->GetSocketLocation("Muzzle_01");
-
-	FTransform SpawnTM = FTransform(GetControlRotation(), GunPosition);
-
-	FActorSpawnParameters SpawnParams;
-	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-	SpawnParams.Instigator = this;
-
-	GetWorld()->SpawnActor<AActor>(ProjectileClass, SpawnTM, SpawnParams);
+	FTimerDelegate TimerDelegate;
+	TimerDelegate.BindUFunction(this, FName("ShootProjectile_TimeElapsed"), ProjectileClass);
+	GetWorldTimerManager().SetTimer(TimerHandle_PrimaryAttack, TimerDelegate, 0.2f, false);
 }
 
 void ASCharacter::PrimaryInteract()
 {
 	if(InteractionComp)
 	    InteractionComp->PrimaryInteract();
+}
+
+void ASCharacter::FirstAbility()
+{
+	PlayAnimMontage(AttackAnim);
+
+	FTimerDelegate TimerDelegate;
+	TimerDelegate.BindUFunction(this, FName("ShootProjectile_TimeElapsed"), AbilityProjectileClass);
+	GetWorldTimerManager().SetTimer(TimerHandle_FirstAbility, TimerDelegate, 0.2f, false);
+}
+
+void ASCharacter::SecondAbility()
+{
+	PlayAnimMontage(AttackAnim);
+
+	FTimerDelegate TimerDelegate;
+	TimerDelegate.BindUFunction(this, FName("ShootProjectile_TimeElapsed"), AbilityClass);
+	GetWorldTimerManager().SetTimer(TimerHandle_SecondAbility, TimerDelegate, 0.2f, false);
+}
+
+void ASCharacter::ShootProjectile_TimeElapsed(TSubclassOf<AActor> PClass)
+{
+	if (ensure(PClass))
+	{
+		// Add the collision queries we want
+		FCollisionObjectQueryParams ObjectQueryParams;
+		ObjectQueryParams.AddObjectTypesToQuery(ECC_WorldDynamic);
+		ObjectQueryParams.AddObjectTypesToQuery(ECC_WorldStatic);
+
+		// Get the camera location and rotation
+		APlayerCameraManager* CameraManager = GetWorld()->GetFirstPlayerController()->PlayerCameraManager;
+		FVector CameraLocation = CameraManager->GetCameraLocation();
+		FRotator CameraRotation = CameraManager->GetCameraRotation();
+
+		FVector End = CameraLocation + (CameraRotation.Vector() * LineDistance);
+
+		// Throw a LineTrace from the camera to the world
+		FHitResult Hit;
+		bool bBlockingHit = GetWorld()->LineTraceSingleByObjectType(Hit, CameraLocation, End, ObjectQueryParams);
+
+		FVector LookAtLocation = End;
+
+		if (bBlockingHit)
+			LookAtLocation = Hit.ImpactPoint;
+
+		// Debug things
+		FColor LineColor = bBlockingHit ? FColor::Green : FColor::Red;
+		DrawDebugLine(GetWorld(), CameraLocation, End, LineColor, false, 2.0f, 0, 2.0f);
+
+		FVector HandPosition = GetMesh()->GetSocketLocation("Muzzle_01");
+
+		// Calculate new rotation of the spawn object base on the line trace
+		FRotator SpawnRotation = UKismetMathLibrary::FindLookAtRotation(HandPosition, LookAtLocation);
+
+		FTransform SpawnTM = FTransform(SpawnRotation, HandPosition);
+
+		// Set Spawn parameters
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		SpawnParams.Instigator = this;
+
+		GetWorld()->SpawnActor<AActor>(PClass, SpawnTM, SpawnParams);
+	}
 }
 

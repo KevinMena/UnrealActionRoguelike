@@ -3,44 +3,46 @@
 
 #include "SExplosiveObject.h"
 
+#include "DrawDebugHelpers.h"
 #include "PhysicsEngine/RadialForceComponent.h"
 
 // Sets default values
 ASExplosiveObject::ASExplosiveObject()
 {
- 	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
-	PrimaryActorTick.bCanEverTick = true;
-
 	MeshComp = CreateDefaultSubobject<UStaticMeshComponent>("MeshComp");
 	MeshComp->SetCollisionProfileName("PhysicsActor");
 	MeshComp->SetSimulatePhysics(true);
-	MeshComp->OnComponentHit.AddDynamic(this, &ASExplosiveObject::OnHit);
 	RootComponent = MeshComp;
 
 	RadialForceComp = CreateDefaultSubobject<URadialForceComponent>("RadialForceComp");
-	RadialForceComp->Radius = 600.0f;
-	RadialForceComp->ImpulseStrength = 2000.0f;
-	RadialForceComp->bImpulseVelChange = true;
 	RadialForceComp->SetupAttachment(MeshComp);
 
+	RadialForceComp->SetAutoActivate(false);
+
+	RadialForceComp->Radius = 750.0f;
+	RadialForceComp->ImpulseStrength = 2500.0f;
+	RadialForceComp->bImpulseVelChange = true;
+
+	RadialForceComp->AddCollisionChannelToAffect(ECC_WorldDynamic);
 }
 
-// Called when the game starts or when spawned
-void ASExplosiveObject::BeginPlay()
+void ASExplosiveObject::PostInitializeComponents()
 {
-	Super::BeginPlay();
+	Super::PostInitializeComponents();
+
+	MeshComp->OnComponentHit.AddDynamic(this, &ASExplosiveObject::OnHit);
 }
 
 void ASExplosiveObject::OnHit(UPrimitiveComponent* HitComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp,
     FVector NormalImpulse, const FHitResult& Hit)
 {
 	RadialForceComp->FireImpulse();
-}
 
-// Called every frame
-void ASExplosiveObject::Tick(float DeltaTime)
-{
-	Super::Tick(DeltaTime);
+	UE_LOG(LogTemp, Log, TEXT("OnHit in Explosive Object"));
 
+	UE_LOG(LogTemp, Warning, TEXT("Other Actor: %s, at game time: %f"), *GetNameSafe(OtherActor), GetWorld()->TimeSeconds);
+
+	FString CombinedString = FString::Printf(TEXT("Hit at location: %s"), *Hit.ImpactPoint.ToString());
+	DrawDebugString(GetWorld(), Hit.ImpactPoint, CombinedString, nullptr, FColor::Green, 2.0f, true);
 }
 
