@@ -25,7 +25,4 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
     URadialForceComponent* RadialForceComp;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
-    USphereComponent* SphereDestroyComp;
 };

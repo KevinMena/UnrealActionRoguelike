@@ -3,14 +3,13 @@
 
 #include "SBlackholeProjectile.h"
 
-#include "Components/SphereComponent.h"
+#include "GameFramework/ProjectileMovementComponent.h"
 #include "PhysicsEngine/RadialForceComponent.h"
 
-ASBlackholeProjectile::ASBlackholeProjectile() : ASProjectileBase()
+ASBlackholeProjectile::ASBlackholeProjectile()
 {
     RadialForceComp = CreateDefaultSubobject<URadialForceComponent>("RadialForceComp");
-    RadialForceComp->SetupAttachment(SphereComp);
+    RadialForceComp->SetupAttachment(RootComponent);
 
-    SphereDestroyComp = CreateDefaultSubobject<USphereComponent>("SphereDestroyComp");
-    SphereDestroyComp->SetupAttachment(SphereComp);
+    MovementComp->InitialSpeed = 1000.0f;
 }

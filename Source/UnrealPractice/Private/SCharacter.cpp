@@ -32,30 +32,16 @@ ASCharacter::ASCharacter()
 	GetCharacterMovement()->bOrientRotationToMovement = true;
 
 	bUseControllerRotationYaw = false;
+
+	AttackAnimDelay = 0.2f;
+	LineDistance = 5000;
 }
 
-// Called when the game starts or when spawned
-void ASCharacter::BeginPlay()
+void ASCharacter::PostInitializeComponents()
 {
-	Super::BeginPlay();
-	
-}
+	Super::PostInitializeComponents();
 
-// Called every frame
-void ASCharacter::Tick(float DeltaTime)
-{
-	Super::Tick(DeltaTime);
-
-	const float DrawScale = 100.0f;
-	const float Thickness = 5.0f;
-
-	FVector LineStart = GetActorLocation();
-	LineStart += GetActorRightVector() * 100.0f;
-	FVector ActionDirection_LineEnd = LineStart + (GetActorForwardVector() * 100.0f);
-	DrawDebugDirectionalArrow(GetWorld(), LineStart, ActionDirection_LineEnd, DrawScale, FColor::Yellow, false, 0.0f, 0, Thickness);
-
-	FVector ControllerDirection_LineEnd = LineStart + (GetControlRotation().Vector() * 100.0f);
-	DrawDebugDirectionalArrow(GetWorld(), LineStart, ControllerDirection_LineEnd, DrawScale, FColor::Green, false, 0.0f, 0, Thickness);
+	AttributeComp->OnHealthChanged.AddDynamic(this, &ASCharacter::OnHealthChanged);
 }
 
 // Called to bind functionality to input
@@ -77,8 +63,8 @@ void ASCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponen
 	PlayerInputComponent->BindAction("PrimaryInteract", IE_Pressed, this, &ASCharacter::PrimaryInteract);
 
 	// Abilities
-	PlayerInputComponent->BindAction("FirstAbility", IE_Pressed, this, &ASCharacter::FirstAbility);
-	PlayerInputComponent->BindAction("SecondAbility", IE_Pressed, this, &ASCharacter::SecondAbility);
+	PlayerInputComponent->BindAction("SecondaryAttack", IE_Pressed, this, &ASCharacter::BlackholeAttack);
+	PlayerInputComponent->BindAction("Dash", IE_Pressed, this, &ASCharacter::Dash);
 }
 
 void ASCharacter::MoveForward(float Value)
@@ -103,81 +89,95 @@ void ASCharacter::MoveRight(float Value)
 	AddMovementInput(RightVector, Value);
 }
 
+void ASCharacter::PrimaryInteract()
+{
+	if (InteractionComp)
+		InteractionComp->PrimaryInteract();
+}
+
 void ASCharacter::PrimaryAttack()
 {
 	PlayAnimMontage(AttackAnim);
-
-	FTimerDelegate TimerDelegate;
-	TimerDelegate.BindUFunction(this, FName("ShootProjectile_TimeElapsed"), ProjectileClass);
-	GetWorldTimerManager().SetTimer(TimerHandle_PrimaryAttack, TimerDelegate, 0.2f, false);
+	GetWorldTimerManager().SetTimer(TimerHandle_PrimaryAttack, this, &ASCharacter::PrimaryAttack_TimeElapsed, AttackAnimDelay);
 }
 
-void ASCharacter::PrimaryInteract()
+void ASCharacter::PrimaryAttack_TimeElapsed()
 {
-	if(InteractionComp)
-	    InteractionComp->PrimaryInteract();
+    SpawnProjectile(ProjectileClass);
 }
 
-void ASCharacter::FirstAbility()
+void ASCharacter::BlackholeAttack()
 {
 	PlayAnimMontage(AttackAnim);
-
-	FTimerDelegate TimerDelegate;
-	TimerDelegate.BindUFunction(this, FName("ShootProjectile_TimeElapsed"), AbilityProjectileClass);
-	GetWorldTimerManager().SetTimer(TimerHandle_FirstAbility, TimerDelegate, 0.2f, false);
+	GetWorldTimerManager().SetTimer(TimerHandle_BlackholeAttack, this, &ASCharacter::BlackholeAttack_TimeElapsed, AttackAnimDelay);
 }
 
-void ASCharacter::SecondAbility()
+void ASCharacter::BlackholeAttack_TimeElapsed()
+{
+    SpawnProjectile(BlackholeProjectileClass);
+}
+
+void ASCharacter::Dash()
 {
 	PlayAnimMontage(AttackAnim);
-
-	FTimerDelegate TimerDelegate;
-	TimerDelegate.BindUFunction(this, FName("ShootProjectile_TimeElapsed"), AbilityClass);
-	GetWorldTimerManager().SetTimer(TimerHandle_SecondAbility, TimerDelegate, 0.2f, false);
+	GetWorldTimerManager().SetTimer(TimerHandle_Dash, this, &ASCharacter::Dash_TimeElapsed, AttackAnimDelay);
 }
 
-void ASCharacter::ShootProjectile_TimeElapsed(TSubclassOf<AActor> PClass)
+void ASCharacter::Dash_TimeElapsed()
 {
-	if (ensure(PClass))
+    SpawnProjectile(DashProjectileClass);
+}
+
+void ASCharacter::SpawnProjectile(TSubclassOf<AActor> PClass)
+{
+	if (ensureAlways(PClass))
 	{
-		// Add the collision queries we want
-		FCollisionObjectQueryParams ObjectQueryParams;
-		ObjectQueryParams.AddObjectTypesToQuery(ECC_WorldDynamic);
-		ObjectQueryParams.AddObjectTypesToQuery(ECC_WorldStatic);
-
-		// Get the camera location and rotation
-		APlayerCameraManager* CameraManager = GetWorld()->GetFirstPlayerController()->PlayerCameraManager;
-		FVector CameraLocation = CameraManager->GetCameraLocation();
-		FRotator CameraRotation = CameraManager->GetCameraRotation();
-
-		FVector End = CameraLocation + (CameraRotation.Vector() * LineDistance);
-
-		// Throw a LineTrace from the camera to the world
-		FHitResult Hit;
-		bool bBlockingHit = GetWorld()->LineTraceSingleByObjectType(Hit, CameraLocation, End, ObjectQueryParams);
-
-		FVector LookAtLocation = End;
-
-		if (bBlockingHit)
-			LookAtLocation = Hit.ImpactPoint;
-
-		// Debug things
-		FColor LineColor = bBlockingHit ? FColor::Green : FColor::Red;
-		DrawDebugLine(GetWorld(), CameraLocation, End, LineColor, false, 2.0f, 0, 2.0f);
-
+		// Get Spawn location
 		FVector HandPosition = GetMesh()->GetSocketLocation("Muzzle_01");
-
-		// Calculate new rotation of the spawn object base on the line trace
-		FRotator SpawnRotation = UKismetMathLibrary::FindLookAtRotation(HandPosition, LookAtLocation);
-
-		FTransform SpawnTM = FTransform(SpawnRotation, HandPosition);
 
 		// Set Spawn parameters
 		FActorSpawnParameters SpawnParams;
 		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 		SpawnParams.Instigator = this;
 
+		FCollisionShape Shape;
+		Shape.SetSphere(20.0f);
+
+		FCollisionQueryParams Params;
+		Params.AddIgnoredActor(this);
+
+		// Add the collision queries we want
+		FCollisionObjectQueryParams ObjectQueryParams;
+		ObjectQueryParams.AddObjectTypesToQuery(ECC_WorldDynamic);
+		ObjectQueryParams.AddObjectTypesToQuery(ECC_WorldStatic);
+		ObjectQueryParams.AddObjectTypesToQuery(ECC_Pawn);
+
+		// Get the camera location and calculate the end of the trace
+		FVector TraceStart = CameraComp->GetComponentLocation();
+		FVector TraceEnd = TraceStart + (GetControlRotation().Vector() * LineDistance);
+
+		// Throw a Sweep from the camera to the world
+		FHitResult Hit;
+		if(GetWorld()->SweepSingleByObjectType(Hit, TraceStart, TraceEnd, FQuat::Identity, ObjectQueryParams, Shape, Params))
+		{
+			TraceEnd = Hit.ImpactPoint;
+		}
+
+		// Calculate new rotation of the spawn object base on the line trace
+		FRotator SpawnRotation = FRotationMatrix::MakeFromX(TraceEnd - HandPosition).Rotator();
+
+		FTransform SpawnTM = FTransform(SpawnRotation, HandPosition);
 		GetWorld()->SpawnActor<AActor>(PClass, SpawnTM, SpawnParams);
+	}
+}
+
+void ASCharacter::OnHealthChanged(AActor* InstigatorActor, USAttributesComponent* OwningComp, float NewHealth,
+    float Delta)
+{
+	if (NewHealth <= 0.0f && Delta < 0.0f)
+	{
+		APlayerController* PlayerController = Cast<APlayerController>(GetController());
+	    DisableInput(PlayerController);
 	}
 }
 

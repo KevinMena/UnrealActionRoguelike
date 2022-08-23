@@ -22,25 +22,22 @@ protected:
 	TSubclassOf<AActor> ProjectileClass;
 
 	UPROPERTY(EditAnywhere, Category = "Attack")
-    TSubclassOf<AActor> AbilityProjectileClass;
+    TSubclassOf<AActor> BlackholeProjectileClass;
 
 	UPROPERTY(EditAnywhere, Category = "Attack")
-    TSubclassOf<AActor> AbilityClass;
+    TSubclassOf<AActor> DashProjectileClass;
 
 	UPROPERTY(EditAnywhere, Category = "Attack")
 	UAnimMontage* AttackAnim;
 
 	FTimerHandle TimerHandle_PrimaryAttack;
-	FTimerHandle TimerHandle_FirstAbility;
-	FTimerHandle TimerHandle_SecondAbility;
+	FTimerHandle TimerHandle_BlackholeAttack;
+	FTimerHandle TimerHandle_Dash;
 
-	float LineDistance = 100000;
+	float LineDistance;
 
-public:
-	// Sets default values for this character's properties
-	ASCharacter();
-
-protected:
+	UPROPERTY(EditDefaultsOnly, Category = "Attack")
+    float AttackAnimDelay;
 
 	UPROPERTY(VisibleAnywhere)
     USpringArmComponent* SpringArmComp;
@@ -51,26 +48,32 @@ protected:
 	UPROPERTY(VisibleAnywhere)
 	USInteractionComponent* InteractionComp;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Attributes")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
     USAttributesComponent* AttributeComp;
-
-	// Called when the game starts or when spawned
-	virtual void BeginPlay() override;
 
 	void MoveForward(float Value);
 	void MoveRight(float Value);
-	void PrimaryAttack();
+
 	void PrimaryInteract();
 
-	void FirstAbility();
-	void SecondAbility();
+	void PrimaryAttack();
+	void PrimaryAttack_TimeElapsed();
+
+	void BlackholeAttack();
+	void BlackholeAttack_TimeElapsed();
+
+	void Dash();
+	void Dash_TimeElapsed();
+
+	void SpawnProjectile(TSubclassOf<AActor> PClass);
 
 	UFUNCTION()
-	void ShootProjectile_TimeElapsed(TSubclassOf<AActor> PClass);
+    void OnHealthChanged(AActor* InstigatorActor, USAttributesComponent* OwningComp, float NewHealth, float Delta);
+
+	virtual void PostInitializeComponents() override;
 
 public:	
-	// Called every frame
-	virtual void Tick(float DeltaTime) override;
+	ASCharacter();
 
 	// Called to bind functionality to input
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
